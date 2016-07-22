@@ -1,5 +1,5 @@
 getwd()
-setwd('C:\\Users\\id022621\\Documents\\work\\4G_capacity')
+#setwd('C:\\Users\\id022621\\Documents\\work\\4G_capacity')
 getwd()
 
 library(dplyr)
@@ -29,30 +29,41 @@ sample
 
 ##strsplit(as.character(sample$ShortName),"_")
 
-str(strsplit(sample$ShortName,"_")[1])
 
-sample %>%
-  separate(col=ShortName, into=c("tets1", "tets2", "tets3", "tets4"), sep = "_")
+sample <- sample %>%
+                separate(col=ShortName, into=c("Location", "RAT", "BaseStation", "FrequencySector"), sep = "_")%>%
+                separate(col=FrequencySector, into = c("Frequency", "Sector"),sep="F")%>%
+                unite(col="LocBSSec",Location,BaseStation,Sector,sep="_")%>%
+                select(-RAT,-Frequency)
 
-separate(data=sample, col=ShortName, into=c("tets1", "tets2", "tets3", "tets4"), sep = "_")
+by_date_hour_locbssec <-
+        sample %>%
+        group_by(Date,Hour,LocBSSec)%>%
+        summarise(DLVolumeMBytes=sum(DLVolumeMBytes, na.rm = TRUE),
+                  ULVolumeMBytes=sum(ULVolumeMBytes, na.rm = TRUE),
+                  MaxDLActiveUsers=sum(MaxDLActiveUsers, na.rm = TRUE),
+                  AvgDLActiveUsers=sum(AvgDLActiveUsers, na.rm = TRUE)
+                  )
 
-strsplit(as.character(sample$ShortName),"_")
+by_date_hour_locbssec
+##check
+sum(by_date_hour_locbssec$DLVolumeMBytes+by_date_hour_locbssec$ULVolumeMBytes, na.rm = TRUE)
 
-sample$Location <- lapply(strsplit(as.character(sample$ShortName),"_"),"[", 1)
-sample$BaseStation <- lapply(strsplit(as.character(sample$ShortName),"_"),"[", 3)
-sample$Sector <- substr(lapply(strsplit(as.character(sample$ShortName),"_"),"[", 4),4,5)
+#sample$Location <- lapply(strsplit(as.character(sample$ShortName),"_"),"[", 1)
+#sample$BaseStation <- lapply(strsplit(as.character(sample$ShortName),"_"),"[", 3)
+#sample$Sector <- substr(lapply(strsplit(as.character(sample$ShortName),"_"),"[", 4),4,5)
 
 #head(sample[c(1,9,10,11,2,7,8)],200)
 
-sample$LocBSSec <- paste(sample$Location, sample$BaseStation, sample$Sector, sep="_")
+#sample$LocBSSec <- paste(sample$Location, sample$BaseStation, sample$Sector, sep="_")
 
-sample$Location <- NULL
-sample$BaseStation <- NULL
-sample$Sector <- NULL
+#sample$Location <- NULL
+#sample$BaseStation <- NULL
+#sample$Sector <- NULL
 
 #head(sample)
 
-sample <-aggregate(cbind(DLVolumeMBytes, ULVolumeMBytes, MaxDLActiveUsers, AvgDLActiveUsers)~Date+Hour+LocBSSec, data=sample, sum, na.rm=TRUE)
+#sample <-aggregate(cbind(DLVolumeMBytes, ULVolumeMBytes, MaxDLActiveUsers, AvgDLActiveUsers)~Date+Hour+LocBSSec, data=sample, sum, na.rm=TRUE)
 ##aggregate(MaxDLActiveUsers~Date+Hour+LocBSSec, data=sample, max, na.rm=TRUE)
 ##aggregate(AvgDLActiveUsers~Date+Hour+LocBSSec, data=sample, mean, na.rm=TRUE)
 
@@ -62,18 +73,32 @@ sample <-aggregate(cbind(DLVolumeMBytes, ULVolumeMBytes, MaxDLActiveUsers, AvgDL
 
 #head(sample)
 
-sum(sample$DLVolumeMBytes)
+#sum(sample$DLVolumeMBytes)
 
-BHVolyume <- aggregate(DLVolumeMBytes~Date+LocBSSec, data=sample, max, na.rm=TRUE)
-DailyVolyume <- aggregate(DLVolumeMBytes~Date+LocBSSec, data=sample, sum, na.rm=TRUE)
+daily_bh <- by_date_hour_locbssec%>%
+                        group_by(Date,LocBSSec)%>%
+                        summarise(BHDLVolumeMBytes=max(DLVolumeMBytes, na.rm = TRUE),
+                                  DailyDLVolumeMBytes=sum(DLVolumeMBytes, na.rm = TRUE)
+                        )
 
-DailyBH <- merge(BHVolyume,DailyVolyume, by=c("Date", "LocBSSec"))
+daily_bh <- daily_bh %>%
+                inner_join(by_date_hour_locbssec, 
+                           by = c("Date" = "Date", "BHDLVolumeMBytes"="DLVolumeMBytes", "LocBSSec"="LocBSSec"))%>%
+                select(LocBSSec, Date, Hour, MaxDLActiveUsers, AvgDLActiveUsers, BHDLVolumeMBytes, DailyDLVolumeMBytes)
 
-names(DailyBH) <- c("Date", "LocBSSec", "BHDLVolumeMBytes", "DailyDLVolumeMBytes")
+daily_bh <- daily_bh %>% 
+                mutate(BHRatio = BHDLVolumeMBytes/DailyDLVolumeMBytes)
+
+#BHVolyume <- aggregate(DLVolumeMBytes~Date+LocBSSec, data=sample, max, na.rm=TRUE)
+#DailyVolyume <- aggregate(DLVolumeMBytes~Date+LocBSSec, data=sample, sum, na.rm=TRUE)
+
+#DailyBH <- merge(BHVolyume,DailyVolyume, by=c("Date", "LocBSSec"))
+
+#names(DailyBH) <- c("Date", "LocBSSec", "BHDLVolumeMBytes", "DailyDLVolumeMBytes")
 
 #head(DailyBH)
 
-DailyBH$BHRatio <- DailyBH$BHDLVolumeMBytes/DailyBH$DailyDLVolumeMBytes
+#DailyBH$BHRatio <- DailyBH$BHDLVolumeMBytes/DailyBH$DailyDLVolumeMBytes
 
 ##DailyBH[DailyBH$BHRatio=="NaN",]
 
@@ -107,15 +132,30 @@ DailyBH$BHRatio <- DailyBH$BHDLVolumeMBytes/DailyBH$DailyDLVolumeMBytes
 
 ##head(merge(BH1,BH2))
 
-head(DailyBH)
+by_locbssec <- daily_bh %>%
+                arrange(desc(BHDLVolumeMBytes))%>%
+                group_by(LocBSSec)
 
-ByLocBSSec <- group_by(arrange(DailyBH, desc(BHDLVolumeMBytes)), LocBSSec)
+#$ByLocBSSec <- group_by(arrange(DailyBH, desc(BHDLVolumeMBytes)), LocBSSec)
 
-head(ByLocBSSec)
+daily_bh
 
-summarise(ByLocBSSec,
-          AverageHourlyForMonth = sum(DailyDLVolumeMBytes/(30/24), na.rm=TRUE),
-          AverageOfAllBH = mean(BHDLVolumeMBytes, na.rm = TRUE),
-          max = max(BHDLVolumeMBytes, na.rm = TRUE),
-          test1 = nth(BHDLVolumeMBytes,1),
-          test2 = nth(BHDLVolumeMBytes,2))
+by_locbssec %>%
+        summarise(AverageHourlyDLVolumeforMonth = sum(DailyDLVolumeMBytes/(30/24), na.rm=TRUE),
+                  AverageOfAllBH = mean(BHDLVolumeMBytes, na.rm = TRUE),
+                  max = max(BHDLVolumeMBytes, na.rm = TRUE),
+                  max1 = nth(BHDLVolumeMBytes,1),
+                  max2 = nth(BHDLVolumeMBytes,2),
+                  max3 = nth(BHDLVolumeMBytes,3),
+                  max4 = nth(BHDLVolumeMBytes,4),
+                  max5 = nth(BHDLVolumeMBytes,5),
+                  max6 = nth(BHDLVolumeMBytes,6),
+                  max7 = nth(BHDLVolumeMBytes,7),
+                  max8 = nth(BHDLVolumeMBytes,8))
+
+#summarise(ByLocBSSec,
+#          AverageHourlyForMonth = sum(DailyDLVolumeMBytes/(30/24), na.rm=TRUE),
+#          AverageOfAllBH = mean(BHDLVolumeMBytes, na.rm = TRUE),
+#          max = max(BHDLVolumeMBytes, na.rm = TRUE),
+#          test1 = nth(BHDLVolumeMBytes,1),
+#          test2 = nth(BHDLVolumeMBytes,2))
